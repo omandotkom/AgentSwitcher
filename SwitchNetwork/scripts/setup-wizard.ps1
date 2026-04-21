@@ -1,42 +1,40 @@
 ﻿#Requires -Version 5.1
-# Quick Setup - Configure network profiles interactively
+# Quick Setup - Configure network profiles (Oracle support)
 
 Write-Host ""
 Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║    Network Switcher - Setup Wizard     ║" -ForegroundColor Cyan
+Write-Host "║    Network Switcher - Setup Wizard       ║" -ForegroundColor Cyan
 Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
 Write-Host ""
 
 $ScriptDir = $PSScriptRoot
 $ConfigFile = Join-Path $ScriptDir "config\network-profiles.json"
 
-function Write-Step {
-    param([string]$Message, [string]$Color = "Yellow")
-    Write-Host "[$Message]" -ForegroundColor $Color
-}
-
-# Step 1: Office Network Config
-Write-Host ""
-Write-Host "📍 Step 1/4: Jaringan Kantor (WiFi/Ethernet)" -ForegroundColor White
+# Step 1: Office Network Config (Oracle)
+Write-Host "📍 Step 1/4: Jaringan Kantor (Oracle Database)" -ForegroundColor White
 Write-Host ""
 
 Write-Host "  Nama WiFi (SSID):" -NoNewline
 $officeSSID = Read-Host " (contoh: OFFICE_WIFI)"
 if ([string]::IsNullOrWhiteSpace($officeSSID)) { $officeSSID = "OFFICE_WIFI" }
 
-Write-Host "  MCP/Database Host:" -NoNewline
-$mcpHost = Read-Host " (contoh: db-server.kantor.local)"
-if ([string]::IsNullOrWhiteSpace($mcpHost)) { $mcpHost = "db-server.kantor.local" }
+Write-Host "  Oracle Host (IP/Domain):" -NoNewline
+$oracleHost = Read-Host " (contoh: 192.168.1.50)"
+if ([string]::IsNullOrWhiteSpace($oracleHost)) { $oracleHost = "192.168.1.50" }
 
-Write-Host "  MCP/Database Port:" -NoNewline
-$mcpPort = Read-Host " (contoh: 5432)"
-if ([string]::IsNullOrWhiteSpace($mcpPort)) { $mcpPort = "5432" }
+Write-Host "  Oracle Port:" -NoNewline
+$oraclePort = Read-Host " (default: 1521)"
+if ([string]::IsNullOrWhiteSpace($oraclePort)) { $oraclePort = "1521" }
+
+Write-Host "  Oracle Service Name:" -NoNewline
+$serviceName = Read-Host " (contoh: ORCL)"
+if ([string]::IsNullOrWhiteSpace($serviceName)) { $serviceName = "ORCL" }
 
 Write-Host "  Gateway IP:" -NoNewline
 $gateway = Read-Host " (contoh: 192.168.1.1)"
 if ([string]::IsNullOrWhiteSpace($gateway)) { $gateway = "192.168.1.1" }
 
-Write-Host "  DNS Servers (pisahkan dengan koma):" -NoNewline
+Write-Host "  DNS Servers:" -NoNewline
 $dns = Read-Host " (contoh: 192.168.1.100,192.168.1.101)"
 if ([string]::IsNullOrWhiteSpace($dns)) { $dns = "192.168.1.100,192.168.1.101" }
 
@@ -46,7 +44,7 @@ Write-Host "📍 Step 2/4: Jaringan External (WiFi Tethering HP)" -ForegroundCol
 Write-Host ""
 
 Write-Host "  Nama WiFi HP (SSID):" -NoNewline
-$externalSSID = Read-Host " (contoh: Hotspot-Androi)"
+$externalSSID = Read-Host " (contoh: Hotspot-Android)"
 if ([string]::IsNullOrWhiteSpace($externalSSID)) { $externalSSID = "Hotspot-Android" }
 
 # Step 3: Review and Save
@@ -54,10 +52,11 @@ Write-Host ""
 Write-Host "📍 Step 3/4: Review Konfigurasi" -ForegroundColor White
 Write-Host ""
 
-Write-Host "Jaringan Kantor:" -ForegroundColor Green
+Write-Host "Jaringan Kantor (Oracle):" -ForegroundColor Green
 Write-Host "  WiFi SSID: $officeSSID"
-Write-Host "  MCP Host: $mcpHost"
-Write-Host "  MCP Port: $mcpPort"
+Write-Host "  Oracle Host: $oracleHost"
+Write-Host "  Oracle Port: $oraclePort"
+Write-Host "  Service Name: $serviceName"
 Write-Host "  Gateway: $gateway"
 Write-Host "  DNS: $dns"
 Write-Host ""
@@ -79,8 +78,10 @@ if ($confirm -ne "n" -and $confirm -ne "N") {
                 gateway = $gateway
                 dns = @($dns -split ",")
                 routes = @("10.0.0.0/8", "172.16.0.0/12")
-                mcpHost = $mcpHost
-                mcpPort = [int]$mcpPort
+                dbType = "oracle"
+                mcpHost = $oracleHost
+                mcpPort = [int]$oraclePort
+                serviceName = $serviceName
             }
             external = @{
                 name = "WiFi Tethering HP"
@@ -93,6 +94,7 @@ if ($confirm -ne "n" -and $confirm -ne "N") {
             }
         }
         autoDetect = @{
+            oracleKeywords = @("oracle", "sqlplus", "toad", "plsql", "dmp", "dbf")
             mcpKeywords = @("database", "db", "postgres", "mysql", "mongodb", "sql", "mcp")
             webKeywords = @("api", "http", "localhost", "web", "frontend", "backend", "html", "css", "js")
         }
@@ -108,14 +110,17 @@ if ($confirm -ne "n" -and $confirm -ne "N") {
     Write-Host "📍 Step 4/4: Cara Pakai" -ForegroundColor White
     Write-Host ""
     Write-Host "  1. Manual switch:"
-    Write-Host "     .\NetworkSwitcher.ps1 -Mode office      # Ke WiFi Kantor"
-    Write-Host "     .\NetworkSwitcher.ps1 -Mode external    # Ke WiFi Tethering HP"
+    Write-Host "     .\NetworkSwitcher.ps1 -Mode office     # Ke WiFi Kantor (Oracle)"
+    Write-Host "     .\NetworkSwitcher.ps1 -Mode external  # Ke WiFi Tethering HP"
     Write-Host ""
     Write-Host "  2. Lewat launcher:"
-    Write-Host "     .\launcher.ps1 -Agent auto              # Coding agent"
-    Write-Host "     .\launcher.ps1 -MCP                   # Untuk database"
+    Write-Host "     .\launcher.ps1 -Agent auto           # Coding agent → External"
+    Write-Host "     .\launcher.ps1 -MCP                  # Database → Kantor"
     Write-Host ""
-    Write-Host "  3. Cek status:"
+    Write-Host "  3. Oracle connection string:"
+    Write-Host "     $oracleHost`:$oraclePort/$serviceName"
+    Write-Host ""
+    Write-Host "  4. Cek status:"
     Write-Host "     .\NetworkSwitcher.ps1 -Status"
     Write-Host ""
 } else {

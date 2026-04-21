@@ -20,18 +20,30 @@ function Get-CommandContext {
     $argsStr = ($Arguments -join " ").ToLower()
     $fullCmd = "$cmd $argsStr"
     
-    # MCP/Database keywords
+    # Oracle/Database keywords - Kantor
+    $oracleKeywords = @("oracle", "sqlplus", "toad", "plsql", "exp", "imp", "oracle", "tns")
+    
+    # MCP/Database keywords - Kantor
     $mcpKeywords = @("postgres", "mysql", "mongodb", "database", "db", "sql", "mcp", "psql", "mysql.exe", "mongod")
     
-    # Web/API/Coding Agent keywords
+    # Web/API/Coding Agent keywords - External
     $webKeywords = @("codex", "claude", "gpt", "api", "http", "curl", "wget", "npm", "node", "python", "pip", "git", "github")
     
+    # Check Oracle first
+    foreach ($kw in $oracleKeywords) {
+        if ($fullCmd -match $kw) {
+            return "office"
+        }
+    }
+    
+    # Then other database
     foreach ($kw in $mcpKeywords) {
         if ($fullCmd -match $kw) {
             return "office"
         }
     }
     
+    # Then external
     foreach ($kw in $webKeywords) {
         if ($fullCmd -match $kw) {
             return "external"
@@ -46,7 +58,8 @@ Write-Host "[Launcher] Analyzing command: $Command $($Arguments -join ' ')" -For
 
 $context = Get-CommandContext
 
-Write-Host "[Launcher] Detected context: $context" -ForegroundColor Yellow
+$contextName = if ($context -eq "office") { "Kantor (Oracle)" } else { "External (Tethering HP)" }
+Write-Host "[Launcher] Detected context: $contextName" -ForegroundColor Yellow
 
 # Switch network based on context
 switch ($context) {

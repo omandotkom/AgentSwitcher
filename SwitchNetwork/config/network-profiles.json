@@ -11,8 +11,10 @@
         "10.0.0.0/8",
         "172.16.0.0/12"
       ],
+      "dbType": "oracle",
       "mcpHost": "db-server-kantor.internal",
-      "mcpPort": 5432
+      "mcpPort": 1521,
+      "serviceName": "ORCL"
     },
     "external": {
       "name": "WiFi Tethering HP",
@@ -28,6 +30,7 @@
     }
   },
   "autoDetect": {
+    "oracleKeywords": ["oracle", "sqlplus", "toad", "plsql", "dmp", "dbf"],
     "mcpKeywords": ["database", "db", "postgres", "mysql", "mongodb", "sql", "mcp"],
     "webKeywords": ["api", "http", "localhost", "web", "frontend", "backend", "html", "css", "js"]
   }

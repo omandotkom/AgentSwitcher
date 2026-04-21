@@ -1,7 +1,7 @@
 ﻿#Requires -Version 5.1
 # AI Coding Agent Launcher with Auto Network Switch
-# Supports: Claude Code, Codex, dan coding agent lainnya
-# Auto-switch antara WiFi Kantor dan Tethering HP
+# Supports: Claude Code, Codex, Cursor, Windsurf
+# Auto-switch antara WiFi Kantor (Oracle) dan Tethering HP
 
 param(
     [Parameter(Mandatory=$false)]
@@ -10,6 +10,10 @@ param(
     
     [Parameter(Mandatory=$false)]
     [switch]$MCP,
+    
+    [Parameter(Mandatory=$false)]
+    [ValidateSet("oracle", "postgres", "mysql", "mongodb")]
+    [string]$DBType = "oracle",
     
     [Parameter(Mandatory=$false)]
     [string[]]$ExtraArgs = @()
@@ -29,7 +33,6 @@ Write-Host ""
 
 # Detect agent
 function Get-AutoAgent {
-    # Check for available agents
     $agents = @{
         "claude" = @("claude", "claude-code")
         "codex" = @("codex", "codex-cli")
@@ -45,19 +48,18 @@ function Get-AutoAgent {
         }
     }
     
-    # Default to codex if nothing found
     return "codex"
 }
 
-# Get network mode based on agent
+# Get network mode based on selection
 function Get-NetworkMode {
-    param([string]$AgentName)
+    param([string]$AgentName, [string]$DatabaseType)
     
     if ($MCP) {
-        return "office"  # Kantor for MCP
+        return "office"  # Kantor for database
     }
     
-    # Most coding agents need external (tethering) for external access
+    # Coding agents need external
     $externalAgents = @("claude", "codex", "cursor", "windsurf")
     
     if ($externalAgents -contains $AgentName) {
@@ -67,14 +69,14 @@ function Get-NetworkMode {
     return "external"
 }
 
-# Get MCP database host from config
-function Get-MCPHost {
+# Get database config from config
+function Get-DatabaseConfig {
     $configFile = Join-Path $ScriptDir "config\network-profiles.json"
     if (Test-Path $configFile) {
         $config = Get-Content $configFile -Raw | ConvertFrom-Json
-        return $config.profiles.office.mcpHost
+        return $config.profiles.office
     }
-    return "localhost"
+    return $null
 }
 
 # Main execution
@@ -90,7 +92,13 @@ if ($Agent -eq "auto") {
 
 Write-Host "[2/4] Determining network mode..." -ForegroundColor Yellow
 $networkMode = Get-NetworkMode -AgentName $detectedAgent
-$networkName = if ($networkMode -eq "office") { "Kantor" } else { "External (Tethering HP)" }
+
+if ($networkMode -eq "office") {
+    $dbConfig = Get-DatabaseConfig
+    $networkName = "Kantor ($($dbConfig.dbType) - $($dbConfig.mcpHost)/$($dbConfig.serviceName))"
+} else {
+    $networkName = "External (Tethering HP)"
+}
 Write-Host "      Mode: $networkName" -ForegroundColor Green
 
 Write-Host "[3/4] Switching network..." -ForegroundColor Yellow
@@ -100,25 +108,25 @@ Write-Host ""
 Write-Host "[4/4] Launching agent..." -ForegroundColor Yellow
 Write-Host ""
 
-# Build command arguments
 $agentCmd = $detectedAgent
 $args = $ExtraArgs
 
-# For MCP mode, set environment variables
+# For MCP/DB mode, show connection info
 if ($MCP) {
-    $mcpHost = Get-MCPHost
-    $env:MCP_DATABASE_HOST = $mcpHost
-    Write-Host "[MCP] Database Host: $mcpHost" -ForegroundColor Cyan
+    $dbConfig = Get-DatabaseConfig
+    Write-Host "[Database] Connection Info:" -ForegroundColor Cyan
+    Write-Host "  Type: $($dbConfig.dbType)"
+    Write-Host "  Host: $($dbConfig.mcpHost)"
+    Write-Host "  Port: $($dbConfig.mcpPort)"
+    Write-Host "  Service: $($dbConfig.serviceName)"
     Write-Host ""
 }
 
-# Execute the agent
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
 Write-Host "Starting: $agentCmd $args" -ForegroundColor Green
 Write-Host "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" -ForegroundColor Cyan
 Write-Host ""
 
-# Check if command exists
 $cmdPath = Get-Command $agentCmd -ErrorAction SilentlyContinue
 if (-not $cmdPath) {
     Write-Host "ERROR: '$agentCmd' not found in PATH" -ForegroundColor Red
@@ -133,5 +141,4 @@ if (-not $cmdPath) {
     exit 1
 }
 
-# Execute with interactive terminal
 & $agentCmd $args

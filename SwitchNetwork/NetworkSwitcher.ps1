@@ -1,6 +1,6 @@
 ﻿#Requires -Version 5.1
 # Network Switcher for AI Coding Agent
-# Switch antara WiFi Kantor dan WiFi Tethering HP
+# Switch antara WiFi Kantor dan WiFi Tethering HP (support Oracle)
 
 param(
     [Parameter(Mandatory=$false)]
@@ -79,28 +79,23 @@ function Connect-WiFi {
     Write-Log "Connecting to WiFi: $SSID"
     
     try {
-        # Try to connect to known network
         $result = netsh wlan connect name="$SSID" 2>&1
         
         if ($result -match "successfully") {
             Write-Log "Connected to: $SSID" "SUCCESS"
         } else {
-            # Try to show available networks
-            Write-Log "Attempting to connect to: $SSID" "WARN"
             netsh wlan connect name="$SSID" | Out-Null
         }
         
-        # Wait for connection
         Start-Sleep -Seconds 3
         
-        # Verify connection
         $current = Get-CurrentWiFiStatus
         if ($current.SSID -eq $SSID) {
             Write-Log "Verified: Connected to $SSID" "SUCCESS"
             return $true
         } else {
             Write-Log "Warning: May not be connected to $SSID" "WARN"
-            return $true  # Still return true, may work
+            return $true
         }
     } catch {
         Write-Log "Error connecting: $_" "ERROR"
@@ -108,16 +103,9 @@ function Connect-WiFi {
     }
 }
 
-# Disconnect WiFi
-function Disconnect-WiFi {
-    Write-Log "Disconnecting WiFi..."
-    netsh wlan disconnect | Out-Null
-    Write-Log "WiFi disconnected" "SUCCESS"
-}
-
-# Switch to office network (Kantor)
+# Switch to office network (Kantor -Oracle)
 function Switch-ToOffice {
-    Write-Log "Switching to KANTOR network (LAN/Ethernet)..."
+    Write-Log "Switching to KANTOR network (Oracle Database)..."
     
     $config = Load-Config
     $profile = $config.profiles.office
@@ -143,10 +131,13 @@ function Switch-ToOffice {
     
     # Set environment variables
     $env:ACTIVE_NETWORK = "office"
+    $env:DB_TYPE = $profile.dbType
     $env:MCP_HOST = $profile.mcpHost
     $env:MCP_PORT = $profile.mcpPort
+    $env:ORACLE_SERVICE = $profile.serviceName
     
-    Write-Log "Switched to KANTOR network - Ready for MCP/Database" "SUCCESS"
+    Write-Log "Switched to KANTOR network - Oracle Database ready" "SUCCESS"
+    Write-Log "TNS: $($profile.mcpHost):$($profile.mcpPort)/$($profile.serviceName)" "INFO"
 }
 
 # Switch to external network (Tethering HP)
@@ -172,8 +163,10 @@ function Switch-ToExternal {
     
     # Clear office-specific variables
     $env:ACTIVE_NETWORK = "external"
+    unset env:DB_TYPE
     unset env:MCP_HOST
     unset env:MCP_PORT
+    unset env:ORACLE_SERVICE
     
     Write-Log "Switched to EXTERNAL network - Ready for Coding Agent" "SUCCESS"
 }
@@ -185,10 +178,17 @@ function Invoke-AutoDetect {
     
     Write-Log "Auto-detecting network mode for: $cwd"
     
-    # Check for MCP-related files
-    $mcpFiles = Get-ChildItem -Path $cwd -Recurse -Include @("*.sql", "*mcp*", "*database*", "*.db", "*db*") -ErrorAction SilentlyContinue
+    # Check for Oracle-related files
+    $oracleFiles = Get-ChildItem -Path $cwd -Recurse -Include @("*.sql", "*oracle*", "*dmp*", "*dbf*", "*.dmp", "*tns*") -ErrorAction SilentlyContinue
+    if ($oracleFiles) {
+        Write-Log "Detected Oracle context - switching to KANTOR" "WARN"
+        return "office"
+    }
+    
+    # Check for MCP-related files (other databases)
+    $mcpFiles = Get-ChildItem -Path $cwd -Recurse -Include @("*mcp*", "*database*", "*.db", "*db*") -ErrorAction SilentlyContinue
     if ($mcpFiles) {
-        Write-Log "Detected MCP/Database context - switching to KANTOR" "WARN"
+        Write-Log "Detected Database context - switching to KANTOR" "WARN"
         return "office"
     }
     
@@ -217,6 +217,10 @@ try {
         Write-Host "WiFi SSID: $($wifiStatus.SSID)"
         Write-Host "WiFi State: $($wifiStatus.State)"
         Write-Host "Active Network: $env:ACTIVE_NETWORK"
+        if ($env:DB_TYPE) {
+            Write-Host "Database Type: $env:DB_TYPE"
+            Write-Host "Oracle Service: $env:ORACLE_SERVICE"
+        }
         Write-Host ""
         return
     }
@@ -229,6 +233,9 @@ try {
             Write-Host "  Name: $($p.name)"
             Write-Host "  Description: $($p.description)"
             Write-Host "  WiFi SSID: $($p.ssid)"
+            if ($p.dbType) {
+                Write-Host "  Database: $($p.dbType) - $($p.mcpHost):$($p.mcpPort)/$($p.serviceName)"
+            }
         }
         Write-Host ""
         return
