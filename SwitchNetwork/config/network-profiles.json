@@ -1,0 +1,33 @@
+﻿{
+  "profiles": {
+    "office": {
+      "name": "Jaringan Kantor",
+      "description": "Untuk koneksi ke database dan MCP server",
+      "vpnEnabled": false,
+      "gateway": "192.168.1.1",
+      "dns": ["192.168.1.100", "192.168.1.101"],
+      "routes": [
+        "10.0.0.0/8",
+        "172.16.0.0/12"
+      ],
+      "mcpHost": "db-server-kantor.internal",
+      "mcpPort": 5432
+    },
+    "vpn": {
+      "name": "VPN External",
+      "description": "Untuk akses coding agent dan internet external",
+      "vpnEnabled": true,
+      "vpnProfileName": "Antigravity",
+      "gateway": "10.8.0.1",
+      "dns": ["1.1.1.1", "8.8.8.8"],
+      "excludeRoutes": [
+        "10.0.0.0/8",
+        "172.16.0.0/12"
+      ]
+    }
+  },
+  "autoDetect": {
+    "mcpKeywords": ["database", "db", "postgres", "mysql", "mongodb", "sql", "mcp"],
+    "webKeywords": ["api", "http", "localhost", "web", "frontend", "backend", "html", "css", "js"]
+  }
+}
