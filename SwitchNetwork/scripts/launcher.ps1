@@ -34,11 +34,11 @@ function Get-CommandContext {
     
     foreach ($kw in $webKeywords) {
         if ($fullCmd -match $kw) {
-            return "vpn"
+            return "external"
         }
     }
     
-    return "vpn" # Default to VPN
+    return "external" # Default to external
 }
 
 # Main execution
@@ -51,12 +51,12 @@ Write-Host "[Launcher] Detected context: $context" -ForegroundColor Yellow
 # Switch network based on context
 switch ($context) {
     "office" {
-        Write-Host "[Launcher] Switching to OFFICE network..." -ForegroundColor Yellow
+        Write-Host "[Launcher] Switching to KANTOR network..." -ForegroundColor Yellow
         & $SwitcherScript -Mode office
     }
-    "vpn" {
-        Write-Host "[Launcher] Switching to VPN network..." -ForegroundColor Yellow
-        & $SwitcherScript -Mode vpn
+    "external" {
+        Write-Host "[Launcher] Switching to EXTERNAL network..." -ForegroundColor Yellow
+        & $SwitcherScript -Mode external
     }
 }
 

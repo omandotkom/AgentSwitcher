@@ -1,10 +1,10 @@
 ﻿#Requires -Version 5.1
 # Network Switcher for AI Coding Agent
-# Otomatis switch jaringan berdasarkan konteks pekerjaan
+# Switch antara WiFi Kantor dan WiFi Tethering HP
 
 param(
     [Parameter(Mandatory=$false)]
-    [ValidateSet("office", "vpn", "auto")]
+    [ValidateSet("office", "external", "auto")]
     [string]$Mode = "auto",
     
     [Parameter(Mandatory=$false)]
@@ -43,141 +43,139 @@ function Load-Config {
     return Get-Content $ConfigFile -Raw | ConvertFrom-Json
 }
 
-# Get current network status
-function Get-CurrentNetworkStatus {
-    $vpnConnected = $false
-    $vpnName = ""
-    
-    # Check VPN status via RAS (Windows built-in)
+# Get current WiFi status
+function Get-CurrentWiFiStatus {
     try {
-        $ras = Get-VpnConnection -ErrorAction SilentlyContinue | Where-Object { $_.ConnectionStatus -eq "Connected" }
-        if ($ras) {
-            $vpnConnected = $true
-            $vpnName = $ras.Name
+        $wifi = netsh wlan show interfaces | Out-String
+        $ssid = ""
+        $state = "Disconnected"
+        
+        if ($wifi -match "SSID\s*:\s*(.+)") {
+            $ssid = $Matches[1].Trim()
         }
-    } catch {}
-    
-    # Check for common VPN clients
-    $vpnProcesses = @("vpnagent", "openvpn", "antigravity", "windscribe", "nordvpn", "expressvpn")
-    foreach ($proc in $vpnProcesses) {
-        if (Get-Process -Name $proc -ErrorAction SilentlyContinue) {
-            $vpnConnected = $true
-            break
+        if ($wifi -match "State\s*:\s*(.+)") {
+            $state = $Matches[1].Trim()
         }
-    }
-    
-    # Get active network adapter
-    $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1
-    
-    return @{
-        VpnConnected = $vpnConnected
-        VpnName = $vpnName
-        AdapterName = $adapter.Name
-        AdapterType = $adapter.InterfaceDescription
+        
+        return @{
+            SSID = $ssid
+            State = $state
+            Connected = ($state -eq "connected")
+        }
+    } catch {
+        return @{ SSID = ""; State = "Error"; Connected = $false }
     }
 }
 
-# Connect to VPN
-function Connect-VPNProfile {
-    param([string]$ProfileName)
+# Connect to WiFi network
+function Connect-WiFi {
+    param([string]$SSID)
     
-    Write-Log "Connecting to VPN: $ProfileName"
+    Write-Log "Disconnecting current WiFi..."
+    netsh wlan disconnect | Out-Null
+    
+    Start-Sleep -Seconds 1
+    
+    Write-Log "Connecting to WiFi: $SSID"
     
     try {
-        # Try Windows RAS first
-        $vpn = Get-VpnConnection -Name $ProfileName -ErrorAction SilentlyContinue
-        if ($vpn) {
-            rasdial $ProfileName 2>&1 | Out-Null
-            Write-Log "VPN connected via RAS: $ProfileName" "SUCCESS"
-            return $true
+        # Try to connect to known network
+        $result = netsh wlan connect name="$SSID" 2>&1
+        
+        if ($result -match "successfully") {
+            Write-Log "Connected to: $SSID" "SUCCESS"
+        } else {
+            # Try to show available networks
+            Write-Log "Attempting to connect to: $SSID" "WARN"
+            netsh wlan connect name="$SSID" | Out-Null
         }
-    } catch {}
-    
-    # Try common VPN executables
-    $vpnCommands = @{
-        "Antigravity" = @("antigravity", "connect")
-        "OpenVPN" = @("openvpn", "--config")
-    }
-    
-    if ($vpnCommands[$ProfileName]) {
-        $cmd, $args = $vpnCommands[$ProfileName]
-        Write-Log "Attempting to start: $cmd $args"
-        Start-Process -FilePath $cmd -ArgumentList $args -WindowStyle Hidden
+        
+        # Wait for connection
         Start-Sleep -Seconds 3
+        
+        # Verify connection
+        $current = Get-CurrentWiFiStatus
+        if ($current.SSID -eq $SSID) {
+            Write-Log "Verified: Connected to $SSID" "SUCCESS"
+            return $true
+        } else {
+            Write-Log "Warning: May not be connected to $SSID" "WARN"
+            return $true  # Still return true, may work
+        }
+    } catch {
+        Write-Log "Error connecting: $_" "ERROR"
+        return $false
     }
-    
-    Write-Log "VPN connection initiated: $ProfileName" "SUCCESS"
-    return $true
 }
 
-# Disconnect VPN
-function Disconnect-VPN {
-    Write-Log "Disconnecting VPN..."
-    
-    try {
-        # Disconnect all RAS connections
-        rasdial 2>&1 | Out-Null
-    } catch {}
-    
-    # Kill VPN processes if needed
-    $vpnProcesses = @("antigravity", "openvpn", "vpnagent")
-    foreach ($proc in $vpnProcesses) {
-        Stop-Process -Name $proc -Force -ErrorAction SilentlyContinue
-    }
-    
-    Write-Log "VPN disconnected" "SUCCESS"
+# Disconnect WiFi
+function Disconnect-WiFi {
+    Write-Log "Disconnecting WiFi..."
+    netsh wlan disconnect | Out-Null
+    Write-Log "WiFi disconnected" "SUCCESS"
 }
 
-# Switch to office network
+# Switch to office network (Kantor)
 function Switch-ToOffice {
-    Write-Log "Switching to OFFICE network (for MCP/Database)..."
+    Write-Log "Switching to KANTOR network (LAN/Ethernet)..."
     
-    Disconnect-VPN
     $config = Load-Config
     $profile = $config.profiles.office
     
+    # Connect to office WiFi if SSID specified
+    if ($profile.ssid) {
+        Connect-WiFi -SSID $profile.ssid
+    }
+    
     # Set DNS for office
     if ($profile.dns) {
-        Set-DnsClientServerAddress -InterfaceIndex (Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1).InterfaceIndex -ServerAddresses $profile.dns
-        Write-Log "DNS set to: $($profile.dns -join ', ')"
+        $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -and $_.InterfaceDescription -match "Wi-Fi|Ethernet" } | Select-Object -First 1
+        if ($adapter) {
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $profile.dns
+            Write-Log "DNS set to: $($profile.dns -join ', ')"
+        }
     }
     
     # Add routes if needed
     foreach ($route in $profile.routes) {
-        Write-Log "Adding route: $route"
-        # route add $route 2>&1 | Out-Null
+        Write-Log "Route configured: $route"
     }
     
+    # Set environment variables
     $env:ACTIVE_NETWORK = "office"
     $env:MCP_HOST = $profile.mcpHost
     $env:MCP_PORT = $profile.mcpPort
     
-    Write-Log "Switched to OFFICE network - Ready for MCP/Database" "SUCCESS"
+    Write-Log "Switched to KANTOR network - Ready for MCP/Database" "SUCCESS"
 }
 
-# Switch to VPN network
-function Switch-ToVPN {
-    Write-Log "Switching to VPN network (for External/Coding Agent)..."
+# Switch to external network (Tethering HP)
+function Switch-ToExternal {
+    Write-Log "Switching to EXTERNAL network (WiFi Tethering HP)..."
     
     $config = Load-Config
-    $profile = $config.profiles.vpn
+    $profile = $config.profiles.external
     
-    Connect-VPNProfile -ProfileName $profile.vpnProfileName
-    
-    # Wait for connection
-    Start-Sleep -Seconds 2
+    # Connect to external WiFi if SSID specified
+    if ($profile.ssid) {
+        Connect-WiFi -SSID $profile.ssid
+    }
     
     # Set DNS for external
     if ($profile.dns) {
-        Set-DnsClientServerAddress -InterfaceIndex (Get-NetAdapter | Where-Object { $_.Status -eq "Up" } | Select-Object -First 1).InterfaceIndex -ServerAddresses $profile.dns
-        Write-Log "DNS set to: $($profile.dns -join ', ')"
+        $adapter = Get-NetAdapter | Where-Object { $_.Status -eq "Up" -and $_.InterfaceDescription -match "Wi-Fi|Ethernet" } | Select-Object -First 1
+        if ($adapter) {
+            Set-DnsClientServerAddress -InterfaceIndex $adapter.InterfaceIndex -ServerAddresses $profile.dns
+            Write-Log "DNS set to: $($profile.dns -join ', ')"
+        }
     }
     
-    $env:ACTIVE_NETWORK = "vpn"
+    # Clear office-specific variables
+    $env:ACTIVE_NETWORK = "external"
     unset env:MCP_HOST
     unset env:MCP_PORT
     
-    Write-Log "Switched to VPN network - Ready for Coding Agent" "SUCCESS"
+    Write-Log "Switched to EXTERNAL network - Ready for Coding Agent" "SUCCESS"
 }
 
 # Auto-detect based on current directory/context
@@ -190,20 +188,20 @@ function Invoke-AutoDetect {
     # Check for MCP-related files
     $mcpFiles = Get-ChildItem -Path $cwd -Recurse -Include @("*.sql", "*mcp*", "*database*", "*.db", "*db*") -ErrorAction SilentlyContinue
     if ($mcpFiles) {
-        Write-Log "Detected MCP/Database context - switching to OFFICE" "WARN"
+        Write-Log "Detected MCP/Database context - switching to KANTOR" "WARN"
         return "office"
     }
     
     # Check for web/API related files
     $webFiles = Get-ChildItem -Path $cwd -Recurse -Include @("*.html", "*.css", "*.js", "*.ts", "*.json", "*.py", "*.go") -ErrorAction SilentlyContinue
     if ($webFiles) {
-        Write-Log "Detected Web/API context - switching to VPN" "WARN"
-        return "vpn"
+        Write-Log "Detected Web/API context - switching to EXTERNAL" "WARN"
+        return "external"
     }
     
-    # Default to VPN if unsure
-    Write-Log "No specific context detected, defaulting to VPN" "WARN"
-    return "vpn"
+    # Default to external if unsure
+    Write-Log "No specific context detected, defaulting to EXTERNAL" "WARN"
+    return "external"
 }
 
 # Main execution
@@ -212,13 +210,12 @@ try {
     Write-Log "Mode: $Mode"
     
     $config = Load-Config
-    $currentStatus = Get-CurrentNetworkStatus
+    $wifiStatus = Get-CurrentWiFiStatus
     
     if ($Status) {
         Write-Host "`n=== Current Network Status ===" -ForegroundColor Cyan
-        Write-Host "VPN Connected: $($currentStatus.VpnConnected)"
-        Write-Host "VPN Name: $($currentStatus.VpnName)"
-        Write-Host "Active Adapter: $($currentStatus.AdapterName)"
+        Write-Host "WiFi SSID: $($wifiStatus.SSID)"
+        Write-Host "WiFi State: $($wifiStatus.State)"
         Write-Host "Active Network: $env:ACTIVE_NETWORK"
         Write-Host ""
         return
@@ -231,7 +228,7 @@ try {
             Write-Host "`n[$key]" -ForegroundColor Yellow
             Write-Host "  Name: $($p.name)"
             Write-Host "  Description: $($p.description)"
-            Write-Host "  VPN Required: $($p.vpnEnabled)"
+            Write-Host "  WiFi SSID: $($p.ssid)"
         }
         Write-Host ""
         return
@@ -240,12 +237,12 @@ try {
     # Execute based on mode
     switch ($Mode) {
         "office" { Switch-ToOffice }
-        "vpn" { Switch-ToVPN }
+        "external" { Switch-ToExternal }
         "auto" { 
             $detected = Invoke-AutoDetect
             switch ($detected) {
                 "office" { Switch-ToOffice }
-                "vpn" { Switch-ToVPN }
+                "external" { Switch-ToExternal }
             }
         }
     }

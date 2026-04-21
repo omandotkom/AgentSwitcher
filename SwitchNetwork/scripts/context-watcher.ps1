@@ -27,7 +27,7 @@ $OfficePatterns = @(
     "*connection*", "*config*db*"
 )
 
-$VpnPatterns = @(
+$ExternalPatterns = @(
     "*.html", "*.css", "*.js", "*.ts", "*.jsx", "*.tsx",
     "*.py", "*.go", "*.rs", "*.java", "*.cs",
     "package.json", "requirements.txt", "go.mod",
@@ -38,7 +38,7 @@ function Get-DetectedContext {
     $files = Get-ChildItem -Path $WatchPath -Recurse -File -ErrorAction SilentlyContinue | Select-Object -First 100
     
     $officeScore = 0
-    $vpnScore = 0
+    $externalScore = 0
     
     foreach ($file in $files) {
         $name = $file.Name.ToLower()
@@ -47,15 +47,15 @@ function Get-DetectedContext {
             if ($name -like $pattern) { $officeScore += 2 }
         }
         
-        foreach ($pattern in $VpnPatterns) {
-            if ($name -like $pattern) { $vpnScore += 1 }
+        foreach ($pattern in $ExternalPatterns) {
+            if ($name -like $pattern) { $externalScore += 1 }
         }
     }
     
-    if ($officeScore -gt $vpnScore -and $officeScore -gt 0) {
+    if ($officeScore -gt $externalScore -and $officeScore -gt 0) {
         return "office"
     }
-    return "vpn"
+    return "external"
 }
 
 function Load-CurrentState {
@@ -97,12 +97,17 @@ while ($true) {
             Write-StatusLog "Context changed: $lastContext -> $detected" -ForegroundColor Yellow
             
             # Auto-switch network
-            & $SwitcherScript -Mode $detected
+            if ($detected -eq "office") {
+                & $SwitcherScript -Mode office
+            } else {
+                & $SwitcherScript -Mode external
+            }
             
             $lastContext = $detected
             Save-CurrentState -Network $detected
             
-            Write-StatusLog "Network switched to: $detected"
+            $networkName = if ($detected -eq "office") { "Kantor" } else { "External (Tethering HP)" }
+            Write-StatusLog "Network switched to: $networkName"
             Write-Host ""
         }
     } catch {

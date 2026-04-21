@@ -1,6 +1,7 @@
 ﻿#Requires -Version 5.1
 # AI Coding Agent Launcher with Auto Network Switch
 # Supports: Claude Code, Codex, dan coding agent lainnya
+# Auto-switch antara WiFi Kantor dan Tethering HP
 
 param(
     [Parameter(Mandatory=$false)]
@@ -53,17 +54,17 @@ function Get-NetworkMode {
     param([string]$AgentName)
     
     if ($MCP) {
-        return "office"
+        return "office"  # Kantor for MCP
     }
     
-    # Most coding agents need VPN for external access
-    $vpnAgents = @("claude", "codex", "cursor", "windsurf")
+    # Most coding agents need external (tethering) for external access
+    $externalAgents = @("claude", "codex", "cursor", "windsurf")
     
-    if ($vpnAgents -contains $AgentName) {
-        return "vpn"
+    if ($externalAgents -contains $AgentName) {
+        return "external"  # WiFi tethering HP
     }
     
-    return "vpn"
+    return "external"
 }
 
 # Get MCP database host from config
@@ -89,7 +90,8 @@ if ($Agent -eq "auto") {
 
 Write-Host "[2/4] Determining network mode..." -ForegroundColor Yellow
 $networkMode = Get-NetworkMode -AgentName $detectedAgent
-Write-Host "      Mode: $networkMode" -ForegroundColor Green
+$networkName = if ($networkMode -eq "office") { "Kantor" } else { "External (Tethering HP)" }
+Write-Host "      Mode: $networkName" -ForegroundColor Green
 
 Write-Host "[3/4] Switching network..." -ForegroundColor Yellow
 & $SwitcherScript -Mode $networkMode
